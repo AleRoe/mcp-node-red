@@ -1,6 +1,6 @@
 # Node-RED MCP Server
 
-MCP server for Node-RED workflow management. Provides AI assistants with 17 tools to manage flows, node modules, context stores, and runtime settings through the Node-RED Admin API v2.
+MCP server for Node-RED workflow management. Provides AI assistants with 22 tools to manage flows, node modules, context stores, runtime settings, public catalogue discovery, and richer implementation guidance through the Node-RED Admin API v2 plus live flow analysis helpers.
 
 ## Installation
 
@@ -43,12 +43,45 @@ Restart Claude Desktop to load the server.
 
 </details>
 
+## Running Modes
+
+The package supports both local `stdio` transport and a long-running `streamable-http` service.
+
+- `stdio` is the default and is meant for MCP clients that spawn the process directly
+- `streamable-http` is meant for Docker and service-style deployments
+
+### stdio Mode
+
+No extra configuration is needed beyond `NODE_RED_URL` and optional `NODE_RED_TOKEN`.
+
+### Streamable HTTP Mode
+
+Set the following environment variables before starting the server:
+
+- `MCP_TRANSPORT=streamable-http`
+- `MCP_HOST=0.0.0.0`
+- `MCP_PORT=3000`
+- `MCP_PATH=/mcp`
+
+Then start the packaged server normally:
+
+```bash
+node dist/index.js
+```
+
+The MCP endpoint will be available at `http://<host>:<port><path>`, for example `http://0.0.0.0:3000/mcp`.
+
 ## Configuration
 
 ### Environment Variables
 
 - `NODE_RED_URL` (required): Your Node-RED instance URL
 - `NODE_RED_TOKEN` (optional): API token for authentication
+- `NODE_RED_CATALOGUE_URL` (optional): Override URL for the public Node-RED catalogue JSON. Default: `https://catalogue.nodered.org/catalogue.json`
+- `MCP_TRANSPORT` (optional): `stdio` or `streamable-http`. Default: `stdio`
+- `MCP_HOST` (optional): HTTP bind host for `streamable-http`. Default: `127.0.0.1`
+- `MCP_PORT` (optional): HTTP bind port for `streamable-http`. Default: `3000`
+- `MCP_PATH` (optional): HTTP endpoint path for `streamable-http`. Default: `/mcp`
 
 ### Environment Files
 
@@ -66,6 +99,52 @@ Copy `.env.example` as a starting template:
 ```bash
 cp .env.example .env
 ```
+
+## Tarball and Docker
+
+Build a distributable tarball:
+
+```bash
+npm run build
+npm pack
+```
+
+That produces a file like `mcp-node-red-1.1.0.tgz` which can be installed into another project, including a Docker image:
+
+```dockerfile
+FROM node:22-alpine
+
+WORKDIR /app
+
+COPY mcp-node-red-1.1.0.tgz ./
+RUN npm install --omit=dev ./mcp-node-red-1.1.0.tgz
+
+ENV NODE_RED_URL=http://node-red:1880
+ENV MCP_TRANSPORT=streamable-http
+ENV MCP_HOST=0.0.0.0
+ENV MCP_PORT=3000
+ENV MCP_PATH=/mcp
+
+CMD ["node", "node_modules/mcp-node-red/dist/index.js"]
+```
+
+Example `docker-compose.yml` service section:
+
+```yaml
+services:
+  mcp-node-red:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_RED_URL: http://node-red:1880
+      MCP_TRANSPORT: streamable-http
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: 3000
+      MCP_PATH: /mcp
+```
+
+In `streamable-http` mode, the package runs as a standalone MCP service suitable for remote MCP clients or sidecar/container deployment.
 
 ### Node-RED Setup
 
@@ -120,6 +199,7 @@ Note: No `NODE_RED_TOKEN` needed - credentials are in the URL.
 
 ### Flow Management
 - **get_flows**: Retrieve all flows from your Node-RED instance
+- **analyze_flows**: Summarize flow topology, node types, entry points, and disconnected nodes
 - **create_flow**: Create new flows via POST /flow
 - **update_flow**: Update individual flows safely via PUT /flow/:id
 - **validate_flow**: Validate flow configuration without deploying
@@ -131,6 +211,9 @@ Note: No `NODE_RED_TOKEN` needed - credentials are in the URL.
 
 ### Node Module Management
 - **get_nodes**: List all installed node modules with versions and status
+- **get_node_catalog**: Correlate installed node sets with live usage in active flows
+- **get_node_help**: Return node help text and editor argument descriptions parsed from the runtime node HTML
+- **search_node_catalogue**: Search the public Node-RED community catalogue for installable modules
 - **install_node**: Install a node module from the npm registry
 - **set_node_module_state**: Enable or disable an installed node module
 - **remove_node_module**: Uninstall a node module from Node-RED
@@ -146,6 +229,9 @@ Note: No `NODE_RED_TOKEN` needed - credentials are in the URL.
 ### Node Interaction
 - **trigger_inject**: Trigger an inject node (same as clicking the button)
 - **set_debug_state**: Enable or disable a debug node's output
+
+### Implementation Guidance
+- **recommend_flow_implementation**: Suggest Node-RED node choices, patterns, and best practices for a requested task using live installed-module and flow context
 
 ## Usage
 

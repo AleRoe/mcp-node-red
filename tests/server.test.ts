@@ -61,6 +61,11 @@ describe('MCP Server', () => {
     expect(toolNames).toContain('update_flow');
     expect(toolNames).toContain('validate_flow');
     expect(toolNames).toContain('delete_flow');
+    expect(toolNames).toContain('analyze_flows');
+    expect(toolNames).toContain('get_node_catalog');
+    expect(toolNames).toContain('get_node_help');
+    expect(toolNames).toContain('search_node_catalogue');
+    expect(toolNames).toContain('recommend_flow_implementation');
 
     await client.close();
     await server.close();

@@ -813,6 +813,89 @@ describe('NodeRedClient', () => {
     });
   });
 
+  describe('getNodesHtml', () => {
+    it('should fetch node help HTML successfully', async () => {
+      vi.mocked(request).mockResolvedValue({
+        statusCode: 200,
+        body: {
+          text: vi.fn().mockResolvedValue('<script data-help-name="inject"></script>'),
+        },
+      } as any);
+
+      const result = await client.getNodesHtml();
+
+      expect(result).toContain('data-help-name="inject"');
+      expect(request).toHaveBeenCalledWith('http://localhost:1880/nodes', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Node-RED-API-Version': 'v2',
+          Authorization: 'Bearer test-token',
+          Accept: 'text/html',
+        },
+      });
+    });
+
+    it('should throw error when node help HTML fetch fails', async () => {
+      vi.mocked(request).mockResolvedValue({
+        statusCode: 500,
+        body: {
+          text: vi.fn().mockResolvedValue('Internal Server Error'),
+        },
+      } as any);
+
+      await expect(client.getNodesHtml()).rejects.toThrow('Failed to get node help HTML: 500');
+    });
+  });
+
+  describe('getNodeCatalogue', () => {
+    it('should fetch the public node catalogue successfully', async () => {
+      const mockCatalogue = {
+        name: 'Node-RED Community catalogue',
+        updated_at: '2026-04-28T00:00:00.000Z',
+        modules: [
+          {
+            id: 'node-red-contrib-example',
+            version: '1.0.0',
+            description: 'Example nodes',
+            types: ['example-node'],
+            keywords: ['example'],
+            url: 'https://flows.nodered.org/node/node-red-contrib-example',
+          },
+        ],
+      };
+
+      vi.mocked(request).mockResolvedValue({
+        statusCode: 200,
+        body: {
+          json: vi.fn().mockResolvedValue(mockCatalogue),
+          text: vi.fn(),
+        },
+      } as any);
+
+      const result = await client.getNodeCatalogue();
+
+      expect(result).toEqual(mockCatalogue);
+      expect(request).toHaveBeenCalledWith('https://catalogue.nodered.org/catalogue.json', {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+        },
+      });
+    });
+
+    it('should throw error when the node catalogue fetch fails', async () => {
+      vi.mocked(request).mockResolvedValue({
+        statusCode: 500,
+        body: {
+          text: vi.fn().mockResolvedValue('Internal Server Error'),
+        },
+      } as any);
+
+      await expect(client.getNodeCatalogue()).rejects.toThrow('Failed to get node catalogue: 500');
+    });
+  });
+
   describe('installNode', () => {
     it('should install node module successfully', async () => {
       const mockModule = {

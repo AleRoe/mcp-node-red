@@ -96,9 +96,30 @@ export const NodeRedDiagnosticsSchema = z
   })
   .passthrough();
 
+export const NodeCatalogueModuleSchema = z
+  .object({
+    id: z.string(),
+    version: z.string().optional(),
+    description: z.string().optional(),
+    updated_at: z.string().optional(),
+    types: z.array(z.string()).optional(),
+    keywords: z.array(z.string()).optional(),
+    url: z.string().url().optional(),
+  })
+  .passthrough();
+
+export const NodeCatalogueSchema = z
+  .object({
+    name: z.string().optional(),
+    updated_at: z.string().optional(),
+    modules: z.array(NodeCatalogueModuleSchema),
+  })
+  .passthrough();
+
 export const ConfigSchema = z.object({
   nodeRedUrl: z.string().url(),
   nodeRedToken: z.string().optional(),
+  nodeRedCatalogueUrl: z.string().url().optional(),
 });
 
 export type NodeRedNode = z.infer<typeof NodeRedNodeSchema>;
@@ -112,4 +133,6 @@ export type NodeSet = z.infer<typeof NodeSetSchema>;
 export type NodeModule = z.infer<typeof NodeModuleSchema>;
 export type NodeRedSettings = z.infer<typeof NodeRedSettingsSchema>;
 export type NodeRedDiagnostics = z.infer<typeof NodeRedDiagnosticsSchema>;
+export type NodeCatalogueModule = z.infer<typeof NodeCatalogueModuleSchema>;
+export type NodeCatalogue = z.infer<typeof NodeCatalogueSchema>;
 export type Config = z.infer<typeof ConfigSchema>;

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type {
   Config,
   FlowState,
+  NodeCatalogue,
   NodeModule,
   NodeRedDiagnostics,
   NodeRedFlowsResponse,
@@ -11,6 +12,7 @@ import type {
 } from './schemas.js';
 import {
   FlowStateSchema,
+  NodeCatalogueSchema,
   NodeModuleSchema,
   NodeRedDiagnosticsSchema,
   NodeRedFlowsResponseSchema,
@@ -21,6 +23,7 @@ export class NodeRedClient {
   private readonly baseUrl: string;
   private readonly token?: string;
   private readonly basicAuth?: string;
+  private readonly catalogueUrl: string;
 
   constructor(config: Config) {
     const url = new URL(config.nodeRedUrl);
@@ -34,6 +37,8 @@ export class NodeRedClient {
 
     this.baseUrl = url.toString().replace(/\/$/, '');
     this.token = config.nodeRedToken;
+    this.catalogueUrl =
+      config.nodeRedCatalogueUrl ?? 'https://catalogue.nodered.org/catalogue.json';
   }
 
   private getHeaders(): Record<string, string> {
@@ -317,6 +322,39 @@ export class NodeRedClient {
 
     const data = await response.body.json();
     return z.array(NodeModuleSchema).parse(data);
+  }
+
+  async getNodesHtml(): Promise<string> {
+    const headers = this.getHeaders();
+    headers.Accept = 'text/html';
+    const response = await request(`${this.baseUrl}/nodes`, {
+      method: 'GET',
+      headers,
+    });
+
+    if (response.statusCode !== 200) {
+      const body = await response.body.text();
+      throw new Error(`Failed to get node help HTML: ${response.statusCode}\n${body}`);
+    }
+
+    return await response.body.text();
+  }
+
+  async getNodeCatalogue(): Promise<NodeCatalogue> {
+    const response = await request(this.catalogueUrl, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+      },
+    });
+
+    if (response.statusCode !== 200) {
+      const body = await response.body.text();
+      throw new Error(`Failed to get node catalogue: ${response.statusCode}\n${body}`);
+    }
+
+    const data = await response.body.json();
+    return NodeCatalogueSchema.parse(data);
   }
 
   async installNode(module: string): Promise<NodeModule> {

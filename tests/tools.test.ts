@@ -1,13 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NodeRedClient } from '../src/client.js';
+import { analyzeFlows } from '../src/tools/analyze-flows.js';
 import { deleteContext } from '../src/tools/delete-context.js';
 import { deleteFlow } from '../src/tools/delete-flow.js';
 import { getContext } from '../src/tools/get-context.js';
 import { getFlowState } from '../src/tools/get-flow-state.js';
 import { getFlows } from '../src/tools/get-flows.js';
+import { getNodeCatalog } from '../src/tools/get-node-catalog.js';
+import { getNodeHelp } from '../src/tools/get-node-help.js';
 import { getNodes } from '../src/tools/get-nodes.js';
 import { installNode } from '../src/tools/install-node.js';
+import { recommendFlowImplementation } from '../src/tools/recommend-flow-implementation.js';
 import { removeNodeModule } from '../src/tools/remove-node-module.js';
+import { searchNodeCatalogue } from '../src/tools/search-node-catalogue.js';
 import { setDebugState } from '../src/tools/set-debug-state.js';
 import { setFlowState } from '../src/tools/set-flow-state.js';
 import { setNodeModuleState } from '../src/tools/set-node-module-state.js';
@@ -34,6 +39,9 @@ describe('Tool Handlers', () => {
       removeNodeModule: vi.fn(),
       triggerInject: vi.fn(),
       setDebugNodeState: vi.fn(),
+      getSettings: vi.fn(),
+      getNodesHtml: vi.fn(),
+      getNodeCatalogue: vi.fn(),
     } as any;
   });
 
@@ -51,6 +59,58 @@ describe('Tool Handlers', () => {
       expect(result.content).toHaveLength(1);
       expect(result.content[0].type).toBe('text');
       expect(JSON.parse(result.content[0].text)).toEqual(mockFlowsData);
+    });
+  });
+
+  describe('analyzeFlows', () => {
+    it('should summarize all flows', async () => {
+      vi.mocked(mockClient.getFlows).mockResolvedValue({
+        rev: 'rev-1',
+        flows: [
+          { id: 'flow-1', type: 'tab', label: 'Main Flow' },
+          { id: 'inject-1', type: 'inject', z: 'flow-1', wires: [['debug-1']] },
+          { id: 'debug-1', type: 'debug', z: 'flow-1', wires: [] },
+        ],
+      });
+
+      const result = await analyzeFlows(mockClient, {});
+      const parsed = JSON.parse(result.content[0].text);
+
+      expect(parsed.summary.flowCount).toBe(1);
+      expect(parsed.flows[0].label).toBe('Main Flow');
+      expect(parsed.flows[0].nodeTypeCounts).toEqual([
+        { type: 'debug', count: 1 },
+        { type: 'inject', count: 1 },
+      ]);
+    });
+
+    it('should analyze a specific flow', async () => {
+      vi.mocked(mockClient.getFlows).mockResolvedValue({
+        rev: 'rev-1',
+        flows: [
+          { id: 'flow-1', type: 'tab', label: 'Main Flow' },
+          { id: 'inject-1', type: 'inject', name: 'Start', z: 'flow-1', wires: [['debug-1']] },
+          { id: 'debug-1', type: 'debug', z: 'flow-1', wires: [] },
+        ],
+      });
+
+      const result = await analyzeFlows(mockClient, { flowId: 'flow-1' });
+      const parsed = JSON.parse(result.content[0].text);
+
+      expect(parsed.flow.id).toBe('flow-1');
+      expect(parsed.summary.nodeCount).toBe(2);
+      expect(parsed.nodes[0].id).toBe('inject-1');
+    });
+
+    it('should fail for an unknown flow', async () => {
+      vi.mocked(mockClient.getFlows).mockResolvedValue({
+        rev: 'rev-1',
+        flows: [{ id: 'flow-1', type: 'tab', label: 'Main Flow' }],
+      });
+
+      await expect(analyzeFlows(mockClient, { flowId: 'missing' })).rejects.toThrow(
+        'Flow not found: missing'
+      );
     });
   });
 
@@ -248,6 +308,234 @@ describe('Tool Handlers', () => {
       const result = await getNodes(mockClient);
 
       expect(JSON.parse(result.content[0].text)).toEqual([]);
+    });
+  });
+
+  describe('getNodeCatalog', () => {
+    it('should enrich installed nodes with flow usage', async () => {
+      vi.mocked(mockClient.getNodes).mockResolvedValue([
+        {
+          name: 'node-red',
+          version: '4.0.0',
+          nodes: {
+            core: {
+              id: 'node-red/core',
+              name: 'core',
+              types: ['inject', 'debug'],
+              enabled: true,
+              module: 'node-red',
+            },
+          },
+        },
+      ]);
+      vi.mocked(mockClient.getFlows).mockResolvedValue({
+        rev: 'rev-1',
+        flows: [
+          { id: 'flow-1', type: 'tab', label: 'Main Flow' },
+          { id: 'inject-1', type: 'inject', z: 'flow-1', wires: [['debug-1']] },
+          { id: 'debug-1', type: 'debug', z: 'flow-1', wires: [] },
+        ],
+      });
+
+      const result = await getNodeCatalog(mockClient, {});
+      const parsed = JSON.parse(result.content[0].text);
+
+      expect(parsed.installedModules).toBe(1);
+      expect(parsed.nodeSets[0].usage).toEqual([
+        { type: 'inject', usedCount: 1, usedInFlows: ['Main Flow'] },
+        { type: 'debug', usedCount: 1, usedInFlows: ['Main Flow'] },
+      ]);
+    });
+  });
+
+  describe('getNodeHelp', () => {
+    it('should return parsed help and arguments for a node type', async () => {
+      vi.mocked(mockClient.getNodesHtml).mockResolvedValue(`
+        <script type="text/html" data-template-name="inject">
+          <div class="form-row">
+            <label for="node-input-name">Name <i class="fa fa-question-circle" data-tooltip="Optional label shown in the editor."></i></label>
+            <input type="text" id="node-input-name" placeholder="optional" />
+          </div>
+          <div class="form-row">
+            <label for="node-input-topic">Topic</label>
+            <input type="text" id="node-input-topic" />
+          </div>
+        </script>
+        <script type="text/html" data-help-name="inject">
+          <p>Injects a message into a flow.</p>
+          <h3>Details</h3>
+          <p>Use this node to start a flow manually or on a schedule.</p>
+          <h3>Outputs</h3>
+          <dl class="message-properties">
+            <dt>payload <span class="property-type">any</span></dt>
+            <dd>The value to send.</dd>
+          </dl>
+        </script>
+      `);
+
+      const result = await getNodeHelp(mockClient, { type: 'inject' });
+      const parsed = JSON.parse(result.content[0].text);
+
+      expect(parsed.type).toBe('inject');
+      expect(parsed.helpText).toContain('Injects a message into a flow.');
+      expect(parsed.arguments).toEqual([
+        {
+          name: 'name',
+          label: 'Name',
+          description: 'Optional label shown in the editor.',
+          inputType: 'text',
+          placeholder: 'optional',
+          required: false,
+        },
+        {
+          name: 'topic',
+          label: 'Topic',
+          description: '',
+          inputType: 'text',
+          placeholder: '',
+          required: false,
+        },
+      ]);
+      expect(parsed.sections[1].properties).toEqual([
+        {
+          name: 'payload',
+          type: 'any',
+          description: 'The value to send.',
+          optional: false,
+        },
+      ]);
+    });
+
+    it('should return a catalog when no type is provided', async () => {
+      vi.mocked(mockClient.getNodesHtml).mockResolvedValue(`
+        <script type="text/html" data-template-name="inject"></script>
+        <script type="text/html" data-help-name="inject"><h3>Details</h3><p>Inject help.</p></script>
+        <script type="text/html" data-help-name="debug"><h3>Details</h3><p>Debug help.</p></script>
+      `);
+
+      const result = await getNodeHelp(mockClient, {});
+      const parsed = JSON.parse(result.content[0].text);
+
+      expect(parsed.totalNodeTypes).toBe(2);
+      expect(parsed.summary.nodesWithHelp).toBe(2);
+      expect(parsed.suggestedStartingPoints.length).toBeGreaterThan(0);
+      expect(parsed.nodeTypes).toEqual([
+        {
+          type: 'debug',
+          family: 'core',
+          summary: 'Debug help.',
+          isConfigNode: false,
+          hasHelp: true,
+          argumentCount: 0,
+          keyArguments: [],
+          sectionTitles: ['Details'],
+        },
+        {
+          type: 'inject',
+          family: 'core',
+          summary: 'Inject help.',
+          isConfigNode: false,
+          hasHelp: true,
+          argumentCount: 0,
+          keyArguments: [],
+          sectionTitles: ['Details'],
+        },
+      ]);
+    });
+  });
+
+  describe('recommendFlowImplementation', () => {
+    it('should provide guided recommendations from live context', async () => {
+      vi.mocked(mockClient.getNodes).mockResolvedValue([
+        {
+          name: 'node-red',
+          version: '4.0.0',
+          nodes: {
+            core: {
+              id: 'node-red/core',
+              name: 'core',
+              types: ['http in', 'http response', 'debug'],
+              enabled: true,
+              module: 'node-red',
+            },
+          },
+        },
+      ]);
+      vi.mocked(mockClient.getFlows).mockResolvedValue({
+        rev: 'rev-1',
+        flows: [{ id: 'flow-1', type: 'tab', label: 'HTTP Flow' }],
+      });
+
+      const result = await recommendFlowImplementation(mockClient, {
+        goal: 'Build an HTTP webhook that transforms JSON',
+      });
+      const parsed = JSON.parse(result.content[0].text);
+
+      expect(parsed.recommendedNodes).toContain('http in');
+      expect(parsed.recommendedNodes).toContain('http response');
+      expect(parsed.patterns.length).toBeGreaterThan(0);
+      expect(parsed.bestPractices.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('searchNodeCatalogue', () => {
+    it('should search the public catalogue by text and node type', async () => {
+      vi.mocked(mockClient.getNodeCatalogue).mockResolvedValue({
+        name: 'Node-RED Community catalogue',
+        updated_at: '2026-04-28T00:00:00.000Z',
+        modules: [
+          {
+            id: 'node-red-contrib-mqtt-extra',
+            version: '1.0.0',
+            description: 'MQTT helper nodes',
+            updated_at: '2026-04-27T00:00:00.000Z',
+            types: ['mqtt in', 'mqtt out'],
+            keywords: ['node-red', 'mqtt'],
+            url: 'https://flows.nodered.org/node/node-red-contrib-mqtt-extra',
+          },
+          {
+            id: 'node-red-contrib-sql-helper',
+            version: '1.0.0',
+            description: 'Database helper nodes',
+            updated_at: '2026-04-27T00:00:00.000Z',
+            types: ['sql-query'],
+            keywords: ['node-red', 'database'],
+            url: 'https://flows.nodered.org/node/node-red-contrib-sql-helper',
+          },
+        ],
+      });
+
+      const result = await searchNodeCatalogue(mockClient, {
+        text: 'mqtt',
+        nodeType: 'mqtt in',
+        limit: 5,
+      });
+      const parsed = JSON.parse(result.content[0].text);
+
+      expect(parsed.returnedResults).toBe(1);
+      expect(parsed.results[0].id).toBe('node-red-contrib-mqtt-extra');
+      expect(parsed.results[0].types).toContain('mqtt in');
+    });
+
+    it('should support exact module filtering', async () => {
+      vi.mocked(mockClient.getNodeCatalogue).mockResolvedValue({
+        modules: [
+          {
+            id: 'node-red-contrib-example',
+            version: '1.2.3',
+            description: 'Example nodes',
+            types: ['example-node'],
+            keywords: ['example'],
+            url: 'https://flows.nodered.org/node/node-red-contrib-example',
+          },
+        ],
+      });
+
+      const result = await searchNodeCatalogue(mockClient, { module: 'node-red-contrib-example' });
+      const parsed = JSON.parse(result.content[0].text);
+
+      expect(parsed.returnedResults).toBe(1);
+      expect(parsed.results[0].id).toBe('node-red-contrib-example');
     });
   });
 

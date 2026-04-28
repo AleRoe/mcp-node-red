@@ -1,8 +1,8 @@
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { NodeRedClient } from './client.js';
 import { ConfigSchema } from './schemas.js';
+import { analyzeFlows } from './tools/analyze-flows.js';
 import { createFlow } from './tools/create-flow.js';
 import { deleteContext } from './tools/delete-context.js';
 import { deleteFlow } from './tools/delete-flow.js';
@@ -10,10 +10,14 @@ import { getContext } from './tools/get-context.js';
 import { getDiagnostics } from './tools/get-diagnostics.js';
 import { getFlowState } from './tools/get-flow-state.js';
 import { getFlows } from './tools/get-flows.js';
+import { getNodeCatalog } from './tools/get-node-catalog.js';
+import { getNodeHelp } from './tools/get-node-help.js';
 import { getNodes } from './tools/get-nodes.js';
 import { getSettings } from './tools/get-settings.js';
 import { installNode } from './tools/install-node.js';
+import { recommendFlowImplementation } from './tools/recommend-flow-implementation.js';
 import { removeNodeModule } from './tools/remove-node-module.js';
+import { searchNodeCatalogue } from './tools/search-node-catalogue.js';
 import { setDebugState } from './tools/set-debug-state.js';
 import { setFlowState } from './tools/set-flow-state.js';
 import { setNodeModuleState } from './tools/set-node-module-state.js';
@@ -32,23 +36,34 @@ export function createServer() {
   const config = ConfigSchema.parse({
     nodeRedUrl,
     nodeRedToken,
+    nodeRedCatalogueUrl: process.env.NODE_RED_CATALOGUE_URL,
   });
 
   const client = new NodeRedClient(config);
 
-  const server = new Server(
+  const server = new McpServer(
     {
       name: 'node-red-mcp-server',
-      version: '1.0.0',
+      version: '1.1.0',
     },
     {
       capabilities: {
+        prompts: {},
         tools: {},
       },
     }
   );
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  server.registerPrompt(
+    'default',
+    {
+      description:
+        'Default prompt for Node-RED MCP Server. Provides access to all tools for managing Node-RED instance.',
+    },
+    async () => ({ messages: [] })
+  );
+
+  server.server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
       {
         name: 'get_flows',
@@ -57,6 +72,20 @@ export function createServer() {
         inputSchema: {
           type: 'object',
           properties: {},
+        },
+      },
+      {
+        name: 'analyze_flows',
+        description:
+          'Summarize Node-RED flow topology for an AI client. Returns per-flow node counts, node types, entry points, terminal nodes, and disconnected nodes. Optionally scope to one flow by ID.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            flowId: {
+              type: 'string',
+              description: 'Optional flow ID to analyze in detail',
+            },
+          },
         },
       },
       {
@@ -215,6 +244,70 @@ export function createServer() {
         },
       },
       {
+        name: 'get_node_catalog',
+        description:
+          'Get installed Node-RED node sets enriched with live usage context from active flows. Useful for understanding which node types are available and where they are already used.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            module: {
+              type: 'string',
+              description: 'Optional exact module name to filter by',
+            },
+            type: {
+              type: 'string',
+              description: 'Optional node type to filter by',
+            },
+          },
+        },
+      },
+      {
+        name: 'get_node_help',
+        description:
+          'Get Node-RED node help text and editor argument descriptions parsed from the runtime node HTML. Optionally scope to a specific node type.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            type: {
+              type: 'string',
+              description: 'Optional Node-RED node type, such as "inject" or "http request"',
+            },
+          },
+        },
+      },
+      {
+        name: 'search_node_catalogue',
+        description:
+          'Search the public Node-RED community node catalogue for installable modules by free text, module name, node type, or keyword.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            text: {
+              type: 'string',
+              description:
+                'Optional free-text search across module names, descriptions, node types, and keywords',
+            },
+            module: {
+              type: 'string',
+              description:
+                'Optional module/package name filter, such as "node-red-contrib-mqtt-broker"',
+            },
+            nodeType: {
+              type: 'string',
+              description: 'Optional node type filter, such as "mqtt in"',
+            },
+            keyword: {
+              type: 'string',
+              description: 'Optional keyword filter, such as "mqtt" or "database"',
+            },
+            limit: {
+              type: 'number',
+              description: 'Maximum number of results to return. Default 10, max 50.',
+            },
+          },
+        },
+      },
+      {
         name: 'install_node',
         description: 'Install a new node module into Node-RED. Installs from the npm registry.',
         inputSchema: {
@@ -313,14 +406,40 @@ export function createServer() {
           required: ['nodeId', 'enabled'],
         },
       },
+      {
+        name: 'recommend_flow_implementation',
+        description:
+          'Provide Node-RED implementation guidance for a requested task using live knowledge of installed modules and active flows. Returns suggested nodes, implementation patterns, and best practices.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            goal: {
+              type: 'string',
+              description: 'What the client wants to build in Node-RED',
+            },
+            constraints: {
+              type: 'string',
+              description:
+                'Optional implementation constraints, requirements, or environmental notes',
+            },
+            existingFlowId: {
+              type: 'string',
+              description: 'Optional existing flow ID to use as local context',
+            },
+          },
+          required: ['goal'],
+        },
+      },
     ],
   }));
 
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  server.server.setRequestHandler(CallToolRequestSchema, async (request) => {
     try {
       switch (request.params.name) {
         case 'get_flows':
           return await getFlows(client);
+        case 'analyze_flows':
+          return await analyzeFlows(client, request.params.arguments);
         case 'create_flow':
           return await createFlow(client, request.params.arguments);
         case 'update_flow':
@@ -339,6 +458,12 @@ export function createServer() {
           return await deleteContext(client, request.params.arguments);
         case 'get_nodes':
           return await getNodes(client);
+        case 'get_node_catalog':
+          return await getNodeCatalog(client, request.params.arguments);
+        case 'get_node_help':
+          return await getNodeHelp(client, request.params.arguments);
+        case 'search_node_catalogue':
+          return await searchNodeCatalogue(client, request.params.arguments);
         case 'install_node':
           return await installNode(client, request.params.arguments);
         case 'set_node_module_state':
@@ -353,6 +478,8 @@ export function createServer() {
           return await triggerInject(client, request.params.arguments);
         case 'set_debug_state':
           return await setDebugState(client, request.params.arguments);
+        case 'recommend_flow_implementation':
+          return await recommendFlowImplementation(client, request.params.arguments);
         default:
           throw new Error(`Unknown tool: ${request.params.name}`);
       }
@@ -370,10 +497,4 @@ export function createServer() {
   });
 
   return server;
-}
-
-export async function runServer() {
-  const server = createServer();
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
 }
