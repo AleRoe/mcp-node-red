@@ -1,0 +1,33 @@
+{
+  "manifest_version": "0.2",
+  "name": "mcp-node-red",
+  "version": "1.1.0",
+  "description": "MCP server for Node-RED workflow management",
+  "author": {
+    "name": "AleRoe"
+  },
+  "server": {
+    "type": "node",
+    "entry_point": "dist/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/dist/index.js"
+      ],
+      "env": {
+        "NODE_RED_URL": "http://localhost:1880"
+      }
+    }
+  },
+  "tools_generated": true,
+  "prompts_generated": true,
+  "license": "MIT",
+  "compatibility": {
+    "claude_desktop": ">=1.0.0",
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "python": ">=3.8",
+      "node": ">=20.0.0"
+    }
+  }
+}

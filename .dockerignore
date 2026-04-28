@@ -1,0 +1,12 @@
+node_modules
+dist
+.git
+.github
+.devcontainer
+coverage
+*.log
+*.tgz
+*.mcpb
+.env
+.env.local
+npm-debug.log*

@@ -29,11 +29,13 @@ describe('loadEnv', () => {
     // First call: .env
     expect(mockConfig.mock.calls[0][0]).toMatchObject({
       path: expect.stringContaining('.env'),
+      quiet: true,
     });
     // Second call: .env.local with override
     expect(mockConfig.mock.calls[1][0]).toMatchObject({
       path: expect.stringContaining('.env.local'),
       override: true,
+      quiet: true,
     });
   });
 

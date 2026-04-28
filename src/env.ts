@@ -6,10 +6,10 @@ export function loadEnv(): void {
   const realEnv = { ...process.env };
 
   // Load .env (base defaults)
-  config({ path: resolve(process.cwd(), '.env') });
+  config({ path: resolve(process.cwd(), '.env'), quiet: true });
 
   // Load .env.local (local overrides, takes precedence over .env)
-  config({ path: resolve(process.cwd(), '.env.local'), override: true });
+  config({ path: resolve(process.cwd(), '.env.local'), override: true, quiet: true });
 
   // Restore real env vars (they always win)
   Object.assign(process.env, realEnv);
