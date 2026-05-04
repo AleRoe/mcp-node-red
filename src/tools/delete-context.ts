@@ -1,12 +1,5 @@
-import { z } from 'zod';
 import type { NodeRedClient } from '../client.js';
-
-const DeleteContextArgsSchema = z.object({
-  scope: z.enum(['global', 'flow', 'node']),
-  id: z.string().optional(),
-  key: z.string(),
-  store: z.string().optional(),
-});
+import { DeleteContextArgsSchema } from '../schemas.js';
 
 export async function deleteContext(client: NodeRedClient, args: unknown) {
   const parsed = DeleteContextArgsSchema.parse(args);

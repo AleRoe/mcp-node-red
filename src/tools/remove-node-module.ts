@@ -1,9 +1,5 @@
-import { z } from 'zod';
 import type { NodeRedClient } from '../client.js';
-
-const RemoveNodeModuleArgsSchema = z.object({
-  module: z.string(),
-});
+import { RemoveNodeModuleArgsSchema } from '../schemas.js';
 
 export async function removeNodeModule(client: NodeRedClient, args: unknown) {
   const parsed = RemoveNodeModuleArgsSchema.parse(args);

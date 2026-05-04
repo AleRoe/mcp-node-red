@@ -154,6 +154,22 @@ describe('NodeRedClient', () => {
         'Failed to create flow: 500'
       );
     });
+
+    it('should allow create payloads without an id and return an empty acknowledgement on 204', async () => {
+      vi.mocked(request).mockResolvedValue({
+        statusCode: 204,
+        body: {
+          text: vi.fn(),
+        },
+      } as any);
+
+      const result = await client.createFlow({
+        label: 'Runtime Assigned Id',
+        nodes: [],
+      });
+
+      expect(result).toEqual({});
+    });
   });
 
   describe('updateFlow', () => {
@@ -274,6 +290,7 @@ describe('NodeRedClient', () => {
       const invalidFlow = {
         id: '',
         label: 'Test',
+        nodes: [],
       };
 
       const result = await client.validateFlow(invalidFlow);
@@ -301,6 +318,7 @@ describe('NodeRedClient', () => {
       const flowWithInvalidConfig = {
         id: '1',
         label: 'Test',
+        nodes: [],
         configs: [{ id: '', type: '' }],
       };
 
@@ -310,10 +328,80 @@ describe('NodeRedClient', () => {
       expect(result.errors).toBeDefined();
     });
 
-    it('should handle validation errors gracefully', async () => {
-      const result = await client.validateFlow({ id: '1' });
+    it('should reject normal flows without a nodes array', async () => {
+      const result = await client.validateFlow({ id: '1', label: 'Incomplete' } as any);
+
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('Flow missing required nodes array');
+    });
+
+    it('should allow validating the special global flow shape', async () => {
+      const result = await client.validateFlow({
+        id: 'global',
+        configs: [],
+        subflows: [],
+      });
 
       expect(result.valid).toBe(true);
+    });
+
+    it('should reject invalid embedded JSON strings on nodes', async () => {
+      const result = await client.validateFlow({
+        id: '1',
+        label: 'Bad JSON Flow',
+        nodes: [
+          {
+            id: 'composer-1',
+            type: 'mcp-tool-result-composer',
+            envelopeJson:
+              '{"content":[{"type":"text","text":"ok"}],"structuredContent":{{msg.payload}},"isError":false}',
+          },
+        ],
+      });
+
+      expect(result.valid).toBe(false);
+      expect(result.errors?.some((error) => error.includes('invalid JSON in envelopeJson'))).toBe(
+        true
+      );
+    });
+
+    it('should reject invalid embedded JSON strings on config nodes', async () => {
+      const result = await client.validateFlow({
+        id: '1',
+        label: 'Bad Config JSON Flow',
+        nodes: [],
+        configs: [
+          {
+            id: 'cfg-1',
+            type: 'mcp-endpoint-config',
+            inputSchema: '{"type":"object",',
+          } as any,
+        ],
+      });
+
+      expect(result.valid).toBe(false);
+      expect(result.errors?.some((error) => error.includes('invalid JSON in inputSchema'))).toBe(
+        true
+      );
+    });
+
+    it('should reject function nodes with invalid JavaScript syntax', async () => {
+      const result = await client.validateFlow({
+        id: '1',
+        label: 'Bad Function Flow',
+        nodes: [
+          {
+            id: 'fn-1',
+            type: 'function',
+            func: 'msg.payload = ; return msg;',
+          },
+        ],
+      });
+
+      expect(result.valid).toBe(false);
+      expect(result.errors?.some((error) => error.includes('invalid JavaScript in func'))).toBe(
+        true
+      );
     });
   });
 

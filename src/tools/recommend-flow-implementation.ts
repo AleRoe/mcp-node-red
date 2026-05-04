@@ -1,5 +1,5 @@
-import { z } from 'zod';
 import type { NodeRedClient } from '../client.js';
+import { RecommendFlowImplementationArgsSchema } from '../schemas.js';
 import {
   buildBestPractices,
   findFlowById,
@@ -7,12 +7,6 @@ import {
   suggestInstalledModules,
   summarizeFlows,
 } from './context-utils.js';
-
-const RecommendFlowImplementationArgsSchema = z.object({
-  goal: z.string().min(1),
-  constraints: z.string().optional(),
-  existingFlowId: z.string().optional(),
-});
 
 export async function recommendFlowImplementation(client: NodeRedClient, args: unknown) {
   const parsed = RecommendFlowImplementationArgsSchema.parse(args);

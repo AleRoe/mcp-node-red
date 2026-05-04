@@ -1,9 +1,5 @@
-import { z } from 'zod';
 import type { NodeRedClient } from '../client.js';
-
-const TriggerInjectArgsSchema = z.object({
-  nodeId: z.string(),
-});
+import { TriggerInjectArgsSchema } from '../schemas.js';
 
 export async function triggerInject(client: NodeRedClient, args: unknown) {
   const parsed = TriggerInjectArgsSchema.parse(args);

@@ -1,10 +1,6 @@
-import { z } from 'zod';
 import type { NodeRedClient } from '../client.js';
+import { AnalyzeFlowsArgsSchema } from '../schemas.js';
 import { findFlowById, summarizeFlows } from './context-utils.js';
-
-const AnalyzeFlowsArgsSchema = z.object({
-  flowId: z.string().optional(),
-});
 
 export async function analyzeFlows(client: NodeRedClient, args: unknown) {
   const parsed = AnalyzeFlowsArgsSchema.parse(args ?? {});

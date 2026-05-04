@@ -1,10 +1,5 @@
-import { z } from 'zod';
 import type { NodeRedClient } from '../client.js';
-
-const SetNodeModuleStateArgsSchema = z.object({
-  module: z.string(),
-  enabled: z.boolean(),
-});
+import { SetNodeModuleStateArgsSchema } from '../schemas.js';
 
 export async function setNodeModuleState(client: NodeRedClient, args: unknown) {
   const parsed = SetNodeModuleStateArgsSchema.parse(args);

@@ -5,10 +5,11 @@ import type {
   FlowState,
   NodeCatalogue,
   NodeModule,
+  NodeRedCreateFlowRequest,
   NodeRedDiagnostics,
   NodeRedFlowsResponse,
   NodeRedSettings,
-  UpdateFlowRequest,
+  NodeRedUpdateFlowRequest,
 } from './schemas.js';
 import {
   FlowStateSchema,
@@ -41,11 +42,22 @@ export class NodeRedClient {
       config.nodeRedCatalogueUrl ?? 'https://catalogue.nodered.org/catalogue.json';
   }
 
-  private getHeaders(): Record<string, string> {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'Node-RED-API-Version': 'v2',
-    };
+  private getHeaders(options: HeaderOptions = {}): Record<string, string> {
+    const headers: Record<string, string> = {};
+
+    if (options.contentType !== false) {
+      headers['Content-Type'] = options.contentType ?? 'application/json';
+    }
+
+    headers['Node-RED-API-Version'] = options.apiVersion ?? 'v2';
+
+    if (options.accept) {
+      headers.Accept = options.accept;
+    }
+
+    if (options.deploymentType) {
+      headers['Node-RED-Deployment-Type'] = options.deploymentType;
+    }
 
     if (this.token) {
       headers.Authorization = `Bearer ${this.token}`;
@@ -71,7 +83,8 @@ export class NodeRedClient {
     return NodeRedFlowsResponseSchema.parse(data);
   }
 
-  async createFlow(flowData: UpdateFlowRequest): Promise<{ id: string }> {
+  async createFlow(flowData: NodeRedCreateFlowRequest): Promise<{ id?: string }> {
+    // This uses POST /flow to add a single tab, not POST /flows bulk deployment.
     const response = await request(`${this.baseUrl}/flow`, {
       method: 'POST',
       headers: this.getHeaders(),
@@ -84,13 +97,13 @@ export class NodeRedClient {
     }
 
     if (response.statusCode === 204) {
-      return { id: flowData.id };
+      return flowData.id ? { id: flowData.id } : {};
     }
     const data = await response.body.json();
-    return data as { id: string };
+    return data as { id?: string };
   }
 
-  async updateFlow(flowId: string, flowData: UpdateFlowRequest): Promise<{ id: string }> {
+  async updateFlow(flowId: string, flowData: NodeRedUpdateFlowRequest): Promise<{ id: string }> {
     const response = await request(`${this.baseUrl}/flow/${flowId}`, {
       method: 'PUT',
       headers: this.getHeaders(),
@@ -265,7 +278,9 @@ export class NodeRedClient {
     }
   }
 
-  async validateFlow(flowData: UpdateFlowRequest): Promise<{ valid: boolean; errors?: string[] }> {
+  async validateFlow(
+    flowData: NodeRedUpdateFlowRequest
+  ): Promise<{ valid: boolean; errors?: string[] }> {
     try {
       const errors: string[] = [];
 
@@ -273,24 +288,69 @@ export class NodeRedClient {
         errors.push('Flow missing required id field');
       }
 
-      if (flowData.nodes) {
-        for (const node of flowData.nodes) {
-          if (!node.id) {
-            errors.push('Node missing required id field');
+      if ('nodes' in flowData) {
+        const nodes = flowData.nodes;
+        if (!Array.isArray(nodes)) {
+          errors.push('Flow nodes must be an array');
+        } else {
+          if (flowData.id !== 'global' && nodes.length === 0) {
+            // Empty arrays are allowed by Node-RED, but we still want a well-formed array present.
           }
-          if (!node.type) {
-            errors.push(`Node ${node.id} missing required type field`);
+
+          const seenNodeIds = new Set<string>();
+          for (const node of nodes) {
+            if (!node.id) {
+              errors.push('Node missing required id field');
+            }
+            if (!node.type) {
+              errors.push(`Node ${node.id} missing required type field`);
+            }
+            validateEmbeddedNodeFields(node, errors);
+            if (node.id) {
+              if (seenNodeIds.has(node.id)) {
+                errors.push(`Duplicate node id found: ${node.id}`);
+              }
+              seenNodeIds.add(node.id);
+            }
           }
         }
+      } else if (flowData.id !== 'global') {
+        errors.push('Flow missing required nodes array');
       }
 
       if (flowData.configs) {
+        const seenConfigIds = new Set<string>();
         for (const config of flowData.configs) {
           if (!config.id) {
             errors.push('Config node missing required id field');
           }
           if (!config.type) {
             errors.push(`Config node ${config.id} missing required type field`);
+          }
+          validateEmbeddedNodeFields(config, errors);
+          if (config.id) {
+            if (seenConfigIds.has(config.id)) {
+              errors.push(`Duplicate config node id found: ${config.id}`);
+            }
+            seenConfigIds.add(config.id);
+          }
+        }
+      }
+
+      if ('subflows' in flowData && Array.isArray(flowData.subflows)) {
+        const seenSubflowIds = new Set<string>();
+        for (const subflow of flowData.subflows) {
+          if (!subflow.id) {
+            errors.push('Subflow missing required id field');
+          }
+          if (!subflow.type) {
+            errors.push(`Subflow ${subflow.id} missing required type field`);
+          }
+          if (subflow.id) {
+            if (seenSubflowIds.has(subflow.id)) {
+              errors.push(`Duplicate subflow id found: ${subflow.id}`);
+            }
+            seenSubflowIds.add(subflow.id);
           }
         }
       }
@@ -308,11 +368,9 @@ export class NodeRedClient {
   }
 
   async getNodes(): Promise<NodeModule[]> {
-    const headers = this.getHeaders();
-    headers.Accept = 'application/json';
     const response = await request(`${this.baseUrl}/nodes`, {
       method: 'GET',
-      headers,
+      headers: this.getHeaders({ accept: 'application/json' }),
     });
 
     if (response.statusCode !== 200) {
@@ -325,11 +383,9 @@ export class NodeRedClient {
   }
 
   async getNodesHtml(): Promise<string> {
-    const headers = this.getHeaders();
-    headers.Accept = 'text/html';
     const response = await request(`${this.baseUrl}/nodes`, {
       method: 'GET',
-      headers,
+      headers: this.getHeaders({ accept: 'text/html' }),
     });
 
     if (response.statusCode !== 200) {
@@ -399,5 +455,69 @@ export class NodeRedClient {
       const body = await response.body.text();
       throw new Error(`Failed to remove node module: ${response.statusCode}\n${body}`);
     }
+  }
+}
+
+type HeaderOptions = {
+  accept?: string;
+  apiVersion?: 'v1' | 'v2' | string;
+  contentType?: string | false;
+  deploymentType?: 'full' | 'nodes' | 'flows' | 'reload';
+};
+
+function validateEmbeddedNodeFields(node: Record<string, unknown>, errors: string[]) {
+  const nodeLabel = `${typeof node.type === 'string' ? node.type : 'unknown'} node ${typeof node.id === 'string' ? node.id : '<missing-id>'}`;
+
+  validateJsonStringField(node, 'inputSchema', nodeLabel, errors);
+  validateJsonStringField(node, 'outputSchema', nodeLabel, errors, { allowEmpty: true });
+  validateJsonStringField(node, 'envelopeJson', nodeLabel, errors);
+  validateFunctionNode(node, nodeLabel, errors);
+}
+
+function validateJsonStringField(
+  node: Record<string, unknown>,
+  fieldName: string,
+  nodeLabel: string,
+  errors: string[],
+  options: { allowEmpty?: boolean } = {}
+) {
+  const rawValue = node[fieldName];
+  if (typeof rawValue !== 'string') {
+    return;
+  }
+
+  if (rawValue.trim().length === 0) {
+    if (!options.allowEmpty) {
+      return;
+    }
+    return;
+  }
+
+  try {
+    JSON.parse(rawValue);
+  } catch (error) {
+    errors.push(
+      `${nodeLabel} has invalid JSON in ${fieldName}: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+
+function validateFunctionNode(node: Record<string, unknown>, nodeLabel: string, errors: string[]) {
+  if (node.type !== 'function') {
+    return;
+  }
+
+  const rawFunction = node.func;
+  if (typeof rawFunction !== 'string' || rawFunction.trim().length === 0) {
+    return;
+  }
+
+  try {
+    // Parse-only syntax check for Node-RED function node bodies.
+    new Function(rawFunction);
+  } catch (error) {
+    errors.push(
+      `${nodeLabel} has invalid JavaScript in func: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
 }

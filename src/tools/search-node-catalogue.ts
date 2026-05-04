@@ -1,14 +1,9 @@
-import { z } from 'zod';
 import type { NodeRedClient } from '../client.js';
-import type { NodeCatalogueModule } from '../schemas.js';
-
-const SearchNodeCatalogueArgsSchema = z.object({
-  text: z.string().optional(),
-  module: z.string().optional(),
-  nodeType: z.string().optional(),
-  keyword: z.string().optional(),
-  limit: z.coerce.number().int().min(1).max(50).default(10),
-});
+import {
+  type NodeCatalogueModule,
+  type SearchNodeCatalogueArgs,
+  SearchNodeCatalogueArgsSchema,
+} from '../schemas.js';
 
 export async function searchNodeCatalogue(client: NodeRedClient, args: unknown) {
   const parsed = SearchNodeCatalogueArgsSchema.parse(args ?? {});
@@ -57,12 +52,7 @@ export async function searchNodeCatalogue(client: NodeRedClient, args: unknown) 
 
 function scoreModule(
   module: NodeCatalogueModule,
-  query: {
-    text?: string;
-    module?: string;
-    nodeType?: string;
-    keyword?: string;
-  }
+  query: Pick<SearchNodeCatalogueArgs, 'text' | 'module' | 'nodeType' | 'keyword'>
 ) {
   let score = 0;
 
@@ -126,12 +116,7 @@ function scoreModule(
 
 function matchesExactFilters(
   module: NodeCatalogueModule,
-  query: {
-    text?: string;
-    module?: string;
-    nodeType?: string;
-    keyword?: string;
-  }
+  query: Pick<SearchNodeCatalogueArgs, 'text' | 'module' | 'nodeType' | 'keyword'>
 ) {
   const moduleFilter = query.module?.toLowerCase();
   const nodeTypeFilter = query.nodeType?.toLowerCase();

@@ -1,9 +1,5 @@
-import { z } from 'zod';
 import type { NodeRedClient } from '../client.js';
-
-const InstallNodeArgsSchema = z.object({
-  module: z.string(),
-});
+import { InstallNodeArgsSchema } from '../schemas.js';
 
 export async function installNode(client: NodeRedClient, args: unknown) {
   const parsed = InstallNodeArgsSchema.parse(args);

@@ -105,8 +105,7 @@ cp .env.example .env
 Build a distributable tarball:
 
 ```bash
-npm run build
-npm pack
+npm run package:tgz
 ```
 
 That produces a file like `mcp-node-red-1.1.0.tgz` which can be installed into another project, including a Docker image:
@@ -145,6 +144,22 @@ services:
 ```
 
 In `streamable-http` mode, the package runs as a standalone MCP service suitable for remote MCP clients or sidecar/container deployment.
+
+To build both distributable artifacts together:
+
+```bash
+npm run package
+```
+
+That produces:
+- `mcp-node-red-<version>.tgz`
+- `mcp-node-red.mcpb`
+
+For a release-prep flow that runs tests first:
+
+```bash
+npm run publish:prep
+```
 
 ### Node-RED Setup
 
@@ -200,10 +215,12 @@ Note: No `NODE_RED_TOKEN` needed - credentials are in the URL.
 ### Flow Management
 - **get_flows**: Retrieve all flows from your Node-RED instance
 - **analyze_flows**: Summarize flow topology, node types, entry points, and disconnected nodes
-- **create_flow**: Create new flows via POST /flow
-- **update_flow**: Update individual flows safely via PUT /flow/:id
-- **validate_flow**: Validate flow configuration without deploying
+- **create_flow**: Create new flows via POST /flow using a structured flow object
+- **update_flow**: Update individual flows safely via PUT /flow/:id using a structured flow object
+- **validate_flow**: Validate structured flow configuration without deploying
 - **delete_flow**: Delete a flow and all its nodes by ID
+
+`create_flow` uses the single-flow `POST /flow` endpoint. This package does not currently expose bulk `POST /flows` deployment, so `Node-RED-Deployment-Type` is not yet user-configurable.
 
 ### Runtime Control
 - **get_flow_state**: Get runtime state of flows (started/stopped)
@@ -278,6 +295,8 @@ Get the Node-RED runtime settings and version
 - **Individual flow updates**: Uses PUT /flow/:id to update only the specified flow
 - **No accidental deletions**: Other flows remain completely untouched
 - **Validation**: All flow configurations are validated before sending to Node-RED
+- **Structured contracts**: Flow tools use explicit object schemas instead of JSON-in-string arguments
+- **Consistent API versioning**: Node-RED requests use `Node-RED-API-Version: v2`
 - **Read-only by default**: Only modifies flows when explicitly requested
 - **Module management guards**: Core modules cannot be removed; enable/disable is reversible
 - **Scoped context operations**: Context reads and deletes are scoped to specific keys

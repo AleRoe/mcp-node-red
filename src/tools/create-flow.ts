@@ -1,26 +1,10 @@
-import { z } from 'zod';
 import type { NodeRedClient } from '../client.js';
-import { UpdateFlowRequestSchema } from '../schemas.js';
-
-const CreateFlowArgsSchema = z.object({
-  flow: z.string(),
-});
+import { CreateFlowToolArgsSchema } from '../schemas.js';
+import { normalizeFlowPayload } from './flow-payload-utils.js';
 
 export async function createFlow(client: NodeRedClient, args: unknown) {
-  const parsed = CreateFlowArgsSchema.parse(args);
-
-  let flowData: unknown;
-  try {
-    flowData = JSON.parse(parsed.flow);
-  } catch (error) {
-    throw new Error(
-      `Invalid JSON in flow parameter: ${error instanceof Error ? error.message : String(error)}`
-    );
-  }
-
-  const validated = UpdateFlowRequestSchema.parse(flowData);
-
-  const result = await client.createFlow(validated);
+  const parsed = CreateFlowToolArgsSchema.parse(args);
+  const result = await client.createFlow(normalizeFlowPayload(parsed.flow));
 
   return {
     content: [

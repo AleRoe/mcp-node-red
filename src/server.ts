@@ -1,7 +1,25 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { NodeRedClient } from './client.js';
-import { ConfigSchema } from './schemas.js';
+import {
+  AnalyzeFlowsArgsSchema,
+  ConfigSchema,
+  CreateFlowToolArgsSchema,
+  DeleteContextArgsSchema,
+  DeleteFlowArgsSchema,
+  GetContextArgsSchema,
+  GetNodeCatalogArgsSchema,
+  GetNodeHelpArgsSchema,
+  InstallNodeArgsSchema,
+  RecommendFlowImplementationArgsSchema,
+  RemoveNodeModuleArgsSchema,
+  SearchNodeCatalogueArgsSchema,
+  SetDebugStateArgsSchema,
+  SetFlowStateArgsSchema,
+  SetNodeModuleStateArgsSchema,
+  TriggerInjectArgsSchema,
+  UpdateFlowToolArgsSchema,
+  ValidateFlowToolArgsSchema,
+} from './schemas.js';
 import { analyzeFlows } from './tools/analyze-flows.js';
 import { createFlow } from './tools/create-flow.js';
 import { deleteContext } from './tools/delete-context.js';
@@ -54,447 +72,216 @@ export function createServer() {
     }
   );
 
-  server.registerPrompt(
-    'default',
+  server.registerTool(
+    'get_flows',
     {
       description:
-        'Default prompt for Node-RED MCP Server. Provides access to all tools for managing Node-RED instance.',
+        'Get all flows from Node-RED instance. Returns current flows configuration including revision number.',
     },
-    async () => ({ messages: [] })
+    async () => getFlows(client)
   );
 
-  server.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: [
-      {
-        name: 'get_flows',
-        description:
-          'Get all flows from Node-RED instance. Returns current flows configuration including revision number.',
-        inputSchema: {
-          type: 'object',
-          properties: {},
-        },
-      },
-      {
-        name: 'analyze_flows',
-        description:
-          'Summarize Node-RED flow topology for an AI client. Returns per-flow node counts, node types, entry points, terminal nodes, and disconnected nodes. Optionally scope to one flow by ID.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            flowId: {
-              type: 'string',
-              description: 'Optional flow ID to analyze in detail',
-            },
-          },
-        },
-      },
-      {
-        name: 'create_flow',
-        description:
-          'Create a new flow using POST /flow. Adds a new flow to Node-RED. Flow ID can be provided or will be auto-generated.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            flow: {
-              type: 'string',
-              description:
-                'JSON string containing flow data with format: {id, label, nodes: [], configs: []}',
-            },
-          },
-          required: ['flow'],
-        },
-      },
-      {
-        name: 'update_flow',
-        description:
-          'Update a specific flow by ID using PUT /flow/:id. Only affects the specified flow, leaving all other flows untouched. Requires flow object with id, label, nodes array, and optional configs array.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            flowId: {
-              type: 'string',
-              description: 'ID of the flow to update',
-            },
-            updates: {
-              type: 'string',
-              description:
-                'JSON string containing flow update with format: {id, label, nodes: [], configs: []}',
-            },
-          },
-          required: ['flowId', 'updates'],
-        },
-      },
-      {
-        name: 'validate_flow',
-        description:
-          'Validate flow configuration without deploying. Checks for required fields and structural integrity.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            flow: {
-              type: 'string',
-              description:
-                'JSON string containing flow data with format: {id, label, nodes: [], configs: []}',
-            },
-          },
-          required: ['flow'],
-        },
-      },
-      {
-        name: 'delete_flow',
-        description: 'Delete a flow from Node-RED by ID. Removes the flow and all its nodes.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            flowId: {
-              type: 'string',
-              description: 'ID of the flow to delete',
-            },
-          },
-          required: ['flowId'],
-        },
-      },
-      {
-        name: 'get_flow_state',
-        description:
-          'Get the runtime state of Node-RED flows. Returns whether flows are currently started or stopped. Requires runtimeState to be enabled in Node-RED settings.',
-        inputSchema: {
-          type: 'object',
-          properties: {},
-        },
-      },
-      {
-        name: 'set_flow_state',
-        description:
-          'Set the runtime state of Node-RED flows to start or stop them. Requires runtimeState to be enabled in Node-RED settings.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            state: {
-              type: 'string',
-              enum: ['start', 'stop'],
-              description: 'The desired flow state: "start" to run flows, "stop" to halt them',
-            },
-          },
-          required: ['state'],
-        },
-      },
-      {
-        name: 'get_context',
-        description:
-          'Read context store data at global, flow, or node scope. Omit key to list all keys.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            scope: {
-              type: 'string',
-              enum: ['global', 'flow', 'node'],
-              description: 'Context scope to read from',
-            },
-            id: {
-              type: 'string',
-              description: 'Flow or node ID (required for flow and node scope)',
-            },
-            key: {
-              type: 'string',
-              description: 'Context key to read. Omit to list all keys.',
-            },
-            store: {
-              type: 'string',
-              description: 'Optional context store name',
-            },
-          },
-          required: ['scope'],
-        },
-      },
-      {
-        name: 'delete_context',
-        description: 'Delete a context store value at global, flow, or node scope.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            scope: {
-              type: 'string',
-              enum: ['global', 'flow', 'node'],
-              description: 'Context scope to delete from',
-            },
-            id: {
-              type: 'string',
-              description: 'Flow or node ID (required for flow and node scope)',
-            },
-            key: {
-              type: 'string',
-              description: 'Context key to delete',
-            },
-            store: {
-              type: 'string',
-              description: 'Optional context store name',
-            },
-          },
-          required: ['scope', 'key'],
-        },
-      },
-      {
-        name: 'get_nodes',
-        description:
-          'Get all installed node modules from Node-RED. Returns array of node module objects with their node sets.',
-        inputSchema: {
-          type: 'object',
-          properties: {},
-        },
-      },
-      {
-        name: 'get_node_catalog',
-        description:
-          'Get installed Node-RED node sets enriched with live usage context from active flows. Useful for understanding which node types are available and where they are already used.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            module: {
-              type: 'string',
-              description: 'Optional exact module name to filter by',
-            },
-            type: {
-              type: 'string',
-              description: 'Optional node type to filter by',
-            },
-          },
-        },
-      },
-      {
-        name: 'get_node_help',
-        description:
-          'Get Node-RED node help text and editor argument descriptions parsed from the runtime node HTML. Optionally scope to a specific node type.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            type: {
-              type: 'string',
-              description: 'Optional Node-RED node type, such as "inject" or "http request"',
-            },
-          },
-        },
-      },
-      {
-        name: 'search_node_catalogue',
-        description:
-          'Search the public Node-RED community node catalogue for installable modules by free text, module name, node type, or keyword.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            text: {
-              type: 'string',
-              description:
-                'Optional free-text search across module names, descriptions, node types, and keywords',
-            },
-            module: {
-              type: 'string',
-              description:
-                'Optional module/package name filter, such as "node-red-contrib-mqtt-broker"',
-            },
-            nodeType: {
-              type: 'string',
-              description: 'Optional node type filter, such as "mqtt in"',
-            },
-            keyword: {
-              type: 'string',
-              description: 'Optional keyword filter, such as "mqtt" or "database"',
-            },
-            limit: {
-              type: 'number',
-              description: 'Maximum number of results to return. Default 10, max 50.',
-            },
-          },
-        },
-      },
-      {
-        name: 'install_node',
-        description: 'Install a new node module into Node-RED. Installs from the npm registry.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            module: {
-              type: 'string',
-              description: 'Name of the npm module to install (e.g. "node-red-contrib-example")',
-            },
-          },
-          required: ['module'],
-        },
-      },
-      {
-        name: 'set_node_module_state',
-        description:
-          'Enable or disable a node module in Node-RED. When disabled, the module nodes are unavailable.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            module: {
-              type: 'string',
-              description: 'Name of the node module to enable/disable',
-            },
-            enabled: {
-              type: 'boolean',
-              description: 'Whether to enable (true) or disable (false) the module',
-            },
-          },
-          required: ['module', 'enabled'],
-        },
-      },
-      {
-        name: 'remove_node_module',
-        description: 'Remove an installed node module from Node-RED. Cannot remove core modules.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            module: {
-              type: 'string',
-              description: 'Name of the node module to remove',
-            },
-          },
-          required: ['module'],
-        },
-      },
-      {
-        name: 'get_settings',
-        description:
-          'Get the runtime settings of the Node-RED instance. Returns server configuration including version, httpNodeRoot, and user info.',
-        inputSchema: {
-          type: 'object',
-          properties: {},
-        },
-      },
-      {
-        name: 'get_diagnostics',
-        description:
-          'Get diagnostic information about the Node-RED runtime. Returns system info including Node.js version, OS details, and memory usage.',
-        inputSchema: {
-          type: 'object',
-          properties: {},
-        },
-      },
-      {
-        name: 'trigger_inject',
-        description:
-          'Trigger an inject node to fire with its configured values. The node must be a deployed inject node.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            nodeId: {
-              type: 'string',
-              description: 'ID of the inject node to trigger',
-            },
-          },
-          required: ['nodeId'],
-        },
-      },
-      {
-        name: 'set_debug_state',
-        description:
-          'Enable or disable a debug node. When disabled, the debug node will not produce output.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            nodeId: {
-              type: 'string',
-              description: 'ID of the debug node',
-            },
-            enabled: {
-              type: 'boolean',
-              description: 'Whether to enable (true) or disable (false) the debug node',
-            },
-          },
-          required: ['nodeId', 'enabled'],
-        },
-      },
-      {
-        name: 'recommend_flow_implementation',
-        description:
-          'Provide Node-RED implementation guidance for a requested task using live knowledge of installed modules and active flows. Returns suggested nodes, implementation patterns, and best practices.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            goal: {
-              type: 'string',
-              description: 'What the client wants to build in Node-RED',
-            },
-            constraints: {
-              type: 'string',
-              description:
-                'Optional implementation constraints, requirements, or environmental notes',
-            },
-            existingFlowId: {
-              type: 'string',
-              description: 'Optional existing flow ID to use as local context',
-            },
-          },
-          required: ['goal'],
-        },
-      },
-    ],
-  }));
+  server.registerTool(
+    'analyze_flows',
+    {
+      description:
+        'Summarize Node-RED flow topology for an AI client. Returns per-flow node counts, node types, entry points, terminal nodes, and disconnected nodes. Optionally scope to one flow by ID.',
+      inputSchema: AnalyzeFlowsArgsSchema.shape,
+    },
+    async (args) => analyzeFlows(client, args)
+  );
 
-  server.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    try {
-      switch (request.params.name) {
-        case 'get_flows':
-          return await getFlows(client);
-        case 'analyze_flows':
-          return await analyzeFlows(client, request.params.arguments);
-        case 'create_flow':
-          return await createFlow(client, request.params.arguments);
-        case 'update_flow':
-          return await updateFlow(client, request.params.arguments);
-        case 'validate_flow':
-          return await validateFlow(client, request.params.arguments);
-        case 'delete_flow':
-          return await deleteFlow(client, request.params.arguments);
-        case 'get_flow_state':
-          return await getFlowState(client);
-        case 'set_flow_state':
-          return await setFlowState(client, request.params.arguments);
-        case 'get_context':
-          return await getContext(client, request.params.arguments);
-        case 'delete_context':
-          return await deleteContext(client, request.params.arguments);
-        case 'get_nodes':
-          return await getNodes(client);
-        case 'get_node_catalog':
-          return await getNodeCatalog(client, request.params.arguments);
-        case 'get_node_help':
-          return await getNodeHelp(client, request.params.arguments);
-        case 'search_node_catalogue':
-          return await searchNodeCatalogue(client, request.params.arguments);
-        case 'install_node':
-          return await installNode(client, request.params.arguments);
-        case 'set_node_module_state':
-          return await setNodeModuleState(client, request.params.arguments);
-        case 'remove_node_module':
-          return await removeNodeModule(client, request.params.arguments);
-        case 'get_settings':
-          return await getSettings(client);
-        case 'get_diagnostics':
-          return await getDiagnostics(client);
-        case 'trigger_inject':
-          return await triggerInject(client, request.params.arguments);
-        case 'set_debug_state':
-          return await setDebugState(client, request.params.arguments);
-        case 'recommend_flow_implementation':
-          return await recommendFlowImplementation(client, request.params.arguments);
-        default:
-          throw new Error(`Unknown tool: ${request.params.name}`);
-      }
-    } catch (error) {
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: `Error: ${error instanceof Error ? error.message : String(error)}`,
-          },
-        ],
-        isError: true,
-      };
-    }
-  });
+  server.registerTool(
+    'create_flow',
+    {
+      description:
+        'Create a new flow tab using POST /flow. This is the single-flow endpoint, not POST /flows bulk deployment. Send a single-flow payload with regular runtime nodes in flow.nodes and config nodes in flow.configs. Regular nodes should belong to the target flow, typically with z equal to the flow id. Flow ID is optional because Node-RED may assign one.',
+      inputSchema: CreateFlowToolArgsSchema.shape,
+    },
+    async (args) => createFlow(client, args)
+  );
+
+  server.registerTool(
+    'update_flow',
+    {
+      description:
+        'Update a specific flow by ID using PUT /flow/:id. Send a single-flow payload, not the flat /flows export format. Put regular runtime nodes in flow.nodes, put config nodes in flow.configs, and keep regular node z values aligned to the target flow id. flow.id may be omitted, but if provided it must match flowId. For existing tabs, prefer reading the current flow first and editing that structure rather than rebuilding it from scratch.',
+      inputSchema: UpdateFlowToolArgsSchema.shape,
+    },
+    async (args) => updateFlow(client, args)
+  );
+
+  server.registerTool(
+    'validate_flow',
+    {
+      description:
+        'Validate a structured single-flow configuration without deploying. Checks required fields and basic structural integrity, including the distinction between regular nodes in flow.nodes and config nodes in flow.configs, against the Node-RED flow shapes this server supports.',
+      inputSchema: ValidateFlowToolArgsSchema.shape,
+    },
+    async (args) => validateFlow(client, args)
+  );
+
+  server.registerTool(
+    'delete_flow',
+    {
+      description: 'Delete a flow from Node-RED by ID. Removes the flow and all its nodes.',
+      inputSchema: DeleteFlowArgsSchema.shape,
+    },
+    async (args) => deleteFlow(client, args)
+  );
+
+  server.registerTool(
+    'get_flow_state',
+    {
+      description:
+        'Get the runtime state of Node-RED flows. Returns whether flows are currently started or stopped. Requires runtimeState to be enabled in Node-RED settings.',
+    },
+    async () => getFlowState(client)
+  );
+
+  server.registerTool(
+    'set_flow_state',
+    {
+      description:
+        'Set the runtime state of Node-RED flows to start or stop them. Requires runtimeState to be enabled in Node-RED settings.',
+      inputSchema: SetFlowStateArgsSchema.shape,
+    },
+    async (args) => setFlowState(client, args)
+  );
+
+  server.registerTool(
+    'get_context',
+    {
+      description:
+        'Read context store data at global, flow, or node scope. Omit key to list all keys.',
+      inputSchema: GetContextArgsSchema.shape,
+    },
+    async (args) => getContext(client, args)
+  );
+
+  server.registerTool(
+    'delete_context',
+    {
+      description: 'Delete a context store value at global, flow, or node scope.',
+      inputSchema: DeleteContextArgsSchema.shape,
+    },
+    async (args) => deleteContext(client, args)
+  );
+
+  server.registerTool(
+    'get_nodes',
+    {
+      description:
+        'Get all installed node modules from Node-RED. Returns array of node module objects with their node sets.',
+    },
+    async () => getNodes(client)
+  );
+
+  server.registerTool(
+    'get_node_catalog',
+    {
+      description:
+        'Get installed Node-RED node sets enriched with live usage context from active flows. Useful for understanding which node types are available and where they are already used.',
+      inputSchema: GetNodeCatalogArgsSchema.shape,
+    },
+    async (args) => getNodeCatalog(client, args)
+  );
+
+  server.registerTool(
+    'get_node_help',
+    {
+      description:
+        'Get Node-RED node help text and editor argument descriptions parsed from the runtime node HTML. Defaults to a compact summary to avoid oversized responses; optionally scope to a specific node type or request fuller detail.',
+      inputSchema: GetNodeHelpArgsSchema.shape,
+    },
+    async (args) => getNodeHelp(client, args)
+  );
+
+  server.registerTool(
+    'search_node_catalogue',
+    {
+      description:
+        'Search the public Node-RED community node catalogue for installable modules by free text, module name, node type, or keyword.',
+      inputSchema: SearchNodeCatalogueArgsSchema.shape,
+    },
+    async (args) => searchNodeCatalogue(client, args)
+  );
+
+  server.registerTool(
+    'install_node',
+    {
+      description: 'Install a new node module into Node-RED. Installs from the npm registry.',
+      inputSchema: InstallNodeArgsSchema.shape,
+    },
+    async (args) => installNode(client, args)
+  );
+
+  server.registerTool(
+    'set_node_module_state',
+    {
+      description:
+        'Enable or disable a node module in Node-RED. When disabled, the module nodes are unavailable.',
+      inputSchema: SetNodeModuleStateArgsSchema.shape,
+    },
+    async (args) => setNodeModuleState(client, args)
+  );
+
+  server.registerTool(
+    'remove_node_module',
+    {
+      description: 'Remove an installed node module from Node-RED. Cannot remove core modules.',
+      inputSchema: RemoveNodeModuleArgsSchema.shape,
+    },
+    async (args) => removeNodeModule(client, args)
+  );
+
+  server.registerTool(
+    'get_settings',
+    {
+      description:
+        'Get the runtime settings of the Node-RED instance. Returns server configuration including version, httpNodeRoot, and user info.',
+    },
+    async () => getSettings(client)
+  );
+
+  server.registerTool(
+    'get_diagnostics',
+    {
+      description:
+        'Get diagnostic information about the Node-RED runtime. Returns system info including Node.js version, OS details, and memory usage.',
+    },
+    async () => getDiagnostics(client)
+  );
+
+  server.registerTool(
+    'trigger_inject',
+    {
+      description:
+        'Trigger an inject node to fire with its configured values. The node must be a deployed inject node.',
+      inputSchema: TriggerInjectArgsSchema.shape,
+    },
+    async (args) => triggerInject(client, args)
+  );
+
+  server.registerTool(
+    'set_debug_state',
+    {
+      description:
+        'Enable or disable a debug node. When disabled, the debug node will not produce output.',
+      inputSchema: SetDebugStateArgsSchema.shape,
+    },
+    async (args) => setDebugState(client, args)
+  );
+
+  server.registerTool(
+    'recommend_flow_implementation',
+    {
+      description:
+        'Provide Node-RED implementation guidance for a requested task using live knowledge of installed modules and active flows. Returns suggested nodes, implementation patterns, and best practices, including strict flow-authoring rules to follow before create_flow or update_flow.',
+      inputSchema: RecommendFlowImplementationArgsSchema.shape,
+    },
+    async (args) => recommendFlowImplementation(client, args)
+  );
 
   return server;
 }

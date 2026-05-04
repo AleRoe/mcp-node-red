@@ -1,10 +1,5 @@
-import { z } from 'zod';
 import type { NodeRedClient } from '../client.js';
-
-const SetDebugStateArgsSchema = z.object({
-  nodeId: z.string(),
-  enabled: z.boolean(),
-});
+import { SetDebugStateArgsSchema } from '../schemas.js';
 
 export async function setDebugState(client: NodeRedClient, args: unknown) {
   const parsed = SetDebugStateArgsSchema.parse(args);

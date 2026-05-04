@@ -1,9 +1,5 @@
-import { z } from 'zod';
 import type { NodeRedClient } from '../client.js';
-
-const DeleteFlowArgsSchema = z.object({
-  flowId: z.string(),
-});
+import { DeleteFlowArgsSchema } from '../schemas.js';
 
 export async function deleteFlow(client: NodeRedClient, args: unknown) {
   const parsed = DeleteFlowArgsSchema.parse(args);

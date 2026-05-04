@@ -1,12 +1,5 @@
-import { z } from 'zod';
 import type { NodeRedClient } from '../client.js';
-
-const GetContextArgsSchema = z.object({
-  scope: z.enum(['global', 'flow', 'node']),
-  id: z.string().optional(),
-  key: z.string().optional(),
-  store: z.string().optional(),
-});
+import { GetContextArgsSchema } from '../schemas.js';
 
 export async function getContext(client: NodeRedClient, args: unknown) {
   const parsed = GetContextArgsSchema.parse(args);

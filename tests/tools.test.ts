@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NodeRedClient } from '../src/client.js';
 import { analyzeFlows } from '../src/tools/analyze-flows.js';
+import { createFlow } from '../src/tools/create-flow.js';
 import { deleteContext } from '../src/tools/delete-context.js';
 import { deleteFlow } from '../src/tools/delete-flow.js';
 import { getContext } from '../src/tools/get-context.js';
@@ -26,6 +27,7 @@ describe('Tool Handlers', () => {
   beforeEach(() => {
     mockClient = {
       getFlows: vi.fn(),
+      createFlow: vi.fn(),
       getContext: vi.fn(),
       deleteContext: vi.fn(),
       updateFlow: vi.fn(),
@@ -122,7 +124,7 @@ describe('Tool Handlers', () => {
 
       const result = await updateFlow(mockClient, {
         flowId: '1',
-        updates: JSON.stringify({ label: 'New Label', nodes: [] }),
+        flow: { label: 'New Label', nodes: [] },
       });
 
       expect(mockClient.updateFlow).toHaveBeenCalledWith('1', {
@@ -133,13 +135,13 @@ describe('Tool Handlers', () => {
       expect(JSON.parse(result.content[0].text)).toEqual(mockResponse);
     });
 
-    it('should throw error for invalid JSON updates', async () => {
+    it('should reject mismatched flow ids', async () => {
       await expect(
         updateFlow(mockClient, {
           flowId: '1',
-          updates: 'invalid json',
+          flow: { id: '2', label: 'Mismatch', nodes: [] },
         })
-      ).rejects.toThrow('Invalid JSON in updates parameter');
+      ).rejects.toThrow('flow.id (2) must match flowId (1)');
     });
 
     it('should ensure flowId matches id in updates', async () => {
@@ -147,10 +149,75 @@ describe('Tool Handlers', () => {
 
       await updateFlow(mockClient, {
         flowId: '1',
-        updates: JSON.stringify({ label: 'Test' }),
+        flow: { label: 'Test', nodes: [] },
       });
 
       expect(mockClient.updateFlow).toHaveBeenCalledWith('1', expect.objectContaining({ id: '1' }));
+    });
+
+    it('should normalize misplaced config nodes before updating', async () => {
+      vi.mocked(mockClient.updateFlow).mockResolvedValue({ id: '1' });
+
+      await updateFlow(mockClient, {
+        flowId: '1',
+        flow: {
+          label: 'Test',
+          nodes: [
+            { id: 'cfg-1', type: 'mcp-endpoint-config', name: 'Server Config' },
+            { id: 'node-1', type: 'inject', x: 100, y: 120, wires: [[]] },
+          ],
+        },
+      });
+
+      expect(mockClient.updateFlow).toHaveBeenCalledWith('1', {
+        id: '1',
+        label: 'Test',
+        nodes: [{ id: 'node-1', type: 'inject', x: 100, y: 120, wires: [[]], z: '1' }],
+        configs: [{ id: 'cfg-1', type: 'mcp-endpoint-config', name: 'Server Config' }],
+      });
+    });
+  });
+
+  describe('createFlow', () => {
+    it('should create flow from a structured flow payload', async () => {
+      vi.mocked(mockClient.createFlow).mockResolvedValue({ id: 'flow-1' });
+
+      const result = await createFlow(mockClient, {
+        flow: {
+          label: 'New Flow',
+          nodes: [],
+          configs: [],
+        },
+      });
+
+      expect(mockClient.createFlow).toHaveBeenCalledWith({
+        label: 'New Flow',
+        nodes: [],
+        configs: [],
+      });
+      expect(JSON.parse(result.content[0].text)).toEqual({ id: 'flow-1' });
+    });
+
+    it('should normalize misplaced config nodes before creating', async () => {
+      vi.mocked(mockClient.createFlow).mockResolvedValue({ id: 'flow-1' });
+
+      await createFlow(mockClient, {
+        flow: {
+          id: 'flow-1',
+          label: 'New Flow',
+          nodes: [
+            { id: 'cfg-1', type: 'mcp-endpoint-config', name: 'Server Config' },
+            { id: 'node-1', type: 'debug', x: 100, y: 120, wires: [] },
+          ],
+        },
+      });
+
+      expect(mockClient.createFlow).toHaveBeenCalledWith({
+        id: 'flow-1',
+        label: 'New Flow',
+        nodes: [{ id: 'node-1', type: 'debug', x: 100, y: 120, wires: [], z: 'flow-1' }],
+        configs: [{ id: 'cfg-1', type: 'mcp-endpoint-config', name: 'Server Config' }],
+      });
     });
   });
 
@@ -188,7 +255,7 @@ describe('Tool Handlers', () => {
       });
 
       const result = await validateFlow(mockClient, {
-        flow: JSON.stringify({ id: '1', label: 'Test', nodes: [] }),
+        flow: { id: '1', label: 'Test', nodes: [] },
       });
 
       const parsed = JSON.parse(result.content[0].text);
@@ -203,7 +270,7 @@ describe('Tool Handlers', () => {
       });
 
       const result = await validateFlow(mockClient, {
-        flow: JSON.stringify({ id: '1' }),
+        flow: { id: '1', nodes: [] },
       });
 
       const parsed = JSON.parse(result.content[0].text);
@@ -211,15 +278,12 @@ describe('Tool Handlers', () => {
       expect(parsed.errors).toEqual(['Missing required field']);
     });
 
-    it('should handle invalid JSON gracefully', async () => {
-      const result = await validateFlow(mockClient, {
-        flow: 'invalid json',
-      });
-
-      const parsed = JSON.parse(result.content[0].text);
-      expect(parsed.valid).toBe(false);
-      expect(parsed.errors).toBeDefined();
-      expect(parsed.errors[0]).toContain('Invalid JSON');
+    it('should reject unsupported flow payloads before reaching the client', async () => {
+      await expect(
+        validateFlow(mockClient, {
+          flow: { id: '1' },
+        })
+      ).rejects.toThrow();
     });
   });
 
@@ -349,7 +413,7 @@ describe('Tool Handlers', () => {
   });
 
   describe('getNodeHelp', () => {
-    it('should return parsed help and arguments for a node type', async () => {
+    it('should return compact help by default for a node type', async () => {
       vi.mocked(mockClient.getNodesHtml).mockResolvedValue(`
         <script type="text/html" data-template-name="inject">
           <div class="form-row">
@@ -377,8 +441,8 @@ describe('Tool Handlers', () => {
       const parsed = JSON.parse(result.content[0].text);
 
       expect(parsed.type).toBe('inject');
-      expect(parsed.helpText).toContain('Injects a message into a flow.');
-      expect(parsed.arguments).toEqual([
+      expect(parsed.summary).toContain('Use this node to start a flow manually or on a schedule.');
+      expect(parsed.keyArguments).toEqual([
         {
           name: 'name',
           label: 'Name',
@@ -396,6 +460,39 @@ describe('Tool Handlers', () => {
           required: false,
         },
       ]);
+      expect(parsed.sectionTitles).toEqual(['Details', 'Outputs']);
+      expect(parsed.helpHtml).toBeUndefined();
+    });
+
+    it('should return full help when requested', async () => {
+      vi.mocked(mockClient.getNodesHtml).mockResolvedValue(`
+        <script type="text/html" data-template-name="inject">
+          <div class="form-row">
+            <label for="node-input-name">Name</label>
+            <input type="text" id="node-input-name" />
+          </div>
+        </script>
+        <script type="text/html" data-help-name="inject">
+          <p>Injects a message into a flow.</p>
+          <h3>Details</h3>
+          <p>Use this node to start a flow manually or on a schedule.</p>
+          <h3>Outputs</h3>
+          <dl class="message-properties">
+            <dt>payload <span class="property-type">any</span></dt>
+            <dd>The value to send.</dd>
+          </dl>
+        </script>
+      `);
+
+      const result = await getNodeHelp(mockClient, {
+        type: 'inject',
+        detail: 'full',
+        includeHtml: true,
+      });
+      const parsed = JSON.parse(result.content[0].text);
+
+      expect(parsed.helpText).toContain('Injects a message into a flow.');
+      expect(parsed.helpHtml).toContain('<p>Injects a message into a flow.</p>');
       expect(parsed.sections[1].properties).toEqual([
         {
           name: 'payload',
@@ -417,6 +514,8 @@ describe('Tool Handlers', () => {
       const parsed = JSON.parse(result.content[0].text);
 
       expect(parsed.totalNodeTypes).toBe(2);
+      expect(parsed.returnedNodeTypes).toBe(2);
+      expect(parsed.truncated).toBe(false);
       expect(parsed.summary.nodesWithHelp).toBe(2);
       expect(parsed.suggestedStartingPoints.length).toBeGreaterThan(0);
       expect(parsed.nodeTypes).toEqual([
@@ -441,6 +540,43 @@ describe('Tool Handlers', () => {
           sectionTitles: ['Details'],
         },
       ]);
+    });
+
+    it('should truncate oversized full node help payloads', async () => {
+      const largeParagraph = 'A'.repeat(5000);
+      vi.mocked(mockClient.getNodesHtml).mockResolvedValue(`
+        <script type="text/html" data-help-name="big-node">
+          <p>${largeParagraph}</p>
+          <h3>Details</h3>
+          <p>${largeParagraph}</p>
+        </script>
+      `);
+
+      const result = await getNodeHelp(mockClient, {
+        type: 'big-node',
+        detail: 'full',
+        maxChars: 1500,
+      });
+      const parsed = JSON.parse(result.content[0].text);
+
+      expect(parsed.truncated).toBe(true);
+      expect(result.content[0].text.length).toBeLessThanOrEqual(2000);
+    });
+
+    it('should limit catalog responses by default limit parameter', async () => {
+      vi.mocked(mockClient.getNodesHtml).mockResolvedValue(`
+        <script type="text/html" data-help-name="alpha"><h3>Details</h3><p>Alpha help.</p></script>
+        <script type="text/html" data-help-name="beta"><h3>Details</h3><p>Beta help.</p></script>
+        <script type="text/html" data-help-name="gamma"><h3>Details</h3><p>Gamma help.</p></script>
+      `);
+
+      const result = await getNodeHelp(mockClient, { limit: 2 });
+      const parsed = JSON.parse(result.content[0].text);
+
+      expect(parsed.totalNodeTypes).toBe(3);
+      expect(parsed.returnedNodeTypes).toBe(2);
+      expect(parsed.truncated).toBe(true);
+      expect(parsed.nodeTypes).toHaveLength(2);
     });
   });
 

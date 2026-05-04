@@ -1,9 +1,5 @@
-import { z } from 'zod';
 import type { NodeRedClient } from '../client.js';
-
-const SetFlowStateArgsSchema = z.object({
-  state: z.enum(['start', 'stop']),
-});
+import { SetFlowStateArgsSchema } from '../schemas.js';
 
 export async function setFlowState(client: NodeRedClient, args: unknown) {
   const parsed = SetFlowStateArgsSchema.parse(args);

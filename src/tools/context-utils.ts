@@ -185,6 +185,10 @@ export function suggestInstalledModules(goal: string, modules: NodeModule[]) {
 
 export function buildBestPractices() {
   return [
+    'Before updating an existing tab, read the current flow first and edit that structure instead of recreating the whole tab from scratch.',
+    'When building single-flow payloads for create_flow or update_flow, put regular runtime nodes in `flow.nodes` and put config nodes in `flow.configs`.',
+    'Ensure regular nodes belong to the target flow: their `z` value should point to the flow id unless they are nested under a subflow.',
+    'Treat the single-flow payload shape as strict: do not send the flat `/flows` export format to create_flow or update_flow.',
     'Keep `msg.payload` predictable and move auxiliary metadata into named properties such as `msg.topic`, `msg.headers`, or `msg.meta`.',
     'Prototype with `inject` and `debug` nodes first, then replace manual triggers with production triggers once the message shape is stable.',
     'Prefer declarative nodes like `change`, `switch`, `template`, and `json` before custom `function` code.',

@@ -1,11 +1,6 @@
-import { z } from 'zod';
 import type { NodeRedClient } from '../client.js';
+import { GetNodeCatalogArgsSchema } from '../schemas.js';
 import { countByType, flattenInstalledNodeSets, summarizeFlows } from './context-utils.js';
-
-const GetNodeCatalogArgsSchema = z.object({
-  module: z.string().optional(),
-  type: z.string().optional(),
-});
 
 export async function getNodeCatalog(client: NodeRedClient, args: unknown) {
   const parsed = GetNodeCatalogArgsSchema.parse(args ?? {});
